@@ -1,55 +1,33 @@
-package beehiveAI
+package main
 
 import (
+	"beehiveAI/reviews"
 	"context"
-	"fmt"
+	"github.com/jackc/pgtype"
+	"github.com/jackc/pgx/v4/pgxpool"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 	"log"
 	"net"
 	"time"
 )
 
-// prerequisite
-//go get google.golang.org/grpc
-//go get github.com/jackc/pgx/v4
-//go get github.com/golang/protobuf/proto
-
-
-
-package main
-
-import (
-"context"
-"database/sql"
-"fmt"
-"log"
-"net"
-"time"
-
-"github.com/golang/protobuf/ptypes"
-"google.golang.org/grpc"
-"reviews"
-"github.com/jackc/pgx/v4"
-)
-
 const (
-	databaseHost     = "localhost"
-	databasePort     = 5432
-	databaseName     = "your_database_name"
-	databaseUser     = "your_username"
-	databasePassword = "your_password"
+	//databaseURL = "postgres://your_username:your_password@localhost:5432/your_database_name" // Update with your database URL
+	databaseURL = "postgres://shairyar:kickme1@localhost:5432/amazon_reviews"
 )
 
-type reviewServer struct{}
+type reviewServer struct {
+	reviews.UnimplementedReviewServiceServer
+}
 
 func (s *reviewServer) Search(ctx context.Context, filter *reviews.ReviewFilter) (*reviews.ReviewResponse, error) {
-	connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s", databaseUser, databasePassword, databaseHost, databasePort, databaseName)
+	//connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s", databaseUser, databasePassword, databaseHost, databasePort, databaseName)
 
-	conn, err := pgx.Connect(context.Background(), connStr)
+	var conn, err = pgxpool.Connect(context.Background(), databaseURL)
 	if err != nil {
 		log.Fatalf("Unable to connect to database: %v", err)
 	}
-
-	defer conn.Close(context.Background())
 
 	var query string
 	var args []interface{}
@@ -73,12 +51,12 @@ func (s *reviewServer) Search(ctx context.Context, filter *reviews.ReviewFilter)
 
 	if filter.MinTimestamp > 0 {
 		query += " AND timestamp >= $4"
-		args = append(args, time.Unix(filter.MinTimestamp, 0))
+		args = append(args, pgtype.Timestamp{Time: time.Unix(filter.MinTimestamp, 0)})
 	}
 
 	if filter.MaxTimestamp < time.Now().Unix() {
 		query += " AND timestamp <= $5"
-		args = append(args, time.Unix(filter.MaxTimestamp, 0))
+		args = append(args, pgtype.Timestamp{Time: time.Unix(filter.MaxTimestamp, 0)})
 	}
 
 	rows, err := conn.Query(context.Background(), query, args...)
@@ -86,6 +64,9 @@ func (s *reviewServer) Search(ctx context.Context, filter *reviews.ReviewFilter)
 		log.Fatalf("Error executing query: %v", err)
 	}
 	defer rows.Close()
+
+	log.Printf("Query: %s", query)
+	log.Printf("Query Parameters: %v", args)
 
 	var reviewList []*reviews.Review
 
@@ -104,7 +85,7 @@ func (s *reviewServer) Search(ctx context.Context, filter *reviews.ReviewFilter)
 			Title:        title,
 			Text:         text,
 			Rating:       rating,
-			Timestamp:    ptypes.TimestampNow(),
+			Timestamp:    timestamp.Unix(),
 		}
 
 		reviewList = append(reviewList, review)
@@ -121,6 +102,7 @@ func main() {
 		log.Fatalf("Failed to listen: %v", err)
 	}
 	grpcServer := grpc.NewServer()
+	reflection.Register(grpcServer)
 	reviews.RegisterReviewServiceServer(grpcServer, &reviewServer{})
 	log.Println("gRPC server listening on port 50051...")
 	grpcServer.Serve(lis)

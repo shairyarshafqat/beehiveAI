@@ -1,8 +1,8 @@
-// reviews.proto
-
 syntax = "proto3";
 
 package reviews;
+
+option go_package = "reviews/";
 
 service ReviewService {
   rpc Search(ReviewFilter) returns (ReviewResponse);
