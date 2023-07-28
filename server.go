@@ -17,6 +17,10 @@ const (
 	databaseURL = "postgres://shairyar:kickme1@localhost:5432/amazon_reviews"
 )
 
+type ReviewServiceServer interface {
+	Search(ctx context.Context, filter *reviews.ReviewFilter) (*reviews.ReviewResponse, error)
+}
+
 type reviewServer struct {
 	reviews.UnimplementedReviewServiceServer
 }
@@ -41,22 +45,22 @@ func (s *reviewServer) Search(ctx context.Context, filter *reviews.ReviewFilter)
 
 	if filter.MinRating > 0 {
 		query += " AND rating >= $2"
-		args = append(args, filter.MinRating)
+		args = append(args, pgtype.Int4{Int: int32(filter.MinRating)})
 	}
 
 	if filter.MaxRating < 5 {
 		query += " AND rating <= $3"
-		args = append(args, filter.MaxRating)
+		args = append(args, pgtype.Int4{Int: int32(filter.MaxRating)})
 	}
 
 	if filter.MinTimestamp > 0 {
-		query += " AND timestamp >= $4"
-		args = append(args, pgtype.Timestamp{Time: time.Unix(filter.MinTimestamp, 0)})
+		query += " AND timestamp >= $4::timestamp"
+		args = append(args, filter.MinTimestamp)
 	}
 
 	if filter.MaxTimestamp < time.Now().Unix() {
-		query += " AND timestamp <= $5"
-		args = append(args, pgtype.Timestamp{Time: time.Unix(filter.MaxTimestamp, 0)})
+		query += " AND timestamp <= $5::timestamp"
+		args = append(args, filter.MaxTimestamp)
 	}
 
 	rows, err := conn.Query(context.Background(), query, args...)
@@ -64,9 +68,6 @@ func (s *reviewServer) Search(ctx context.Context, filter *reviews.ReviewFilter)
 		log.Fatalf("Error executing query: %v", err)
 	}
 	defer rows.Close()
-
-	log.Printf("Query: %s", query)
-	log.Printf("Query Parameters: %v", args)
 
 	var reviewList []*reviews.Review
 
